@@ -39,7 +39,7 @@ var READSB;
             }).addTo(this.lMap);
             const bl = READSB.LMapLayers.CreateBaseLayers();
             const sl = READSB.LMapLayers.CreateSiteCircleLayer();
-            this.lMapLayers = Object.assign(Object.assign({}, bl), sl);
+            this.lMapLayers = Object.assign({}, bl, sl);
             for (const layers of Object.values(this.lMapLayers)) {
                 layers.forEach((l) => {
                     const o = l.options;

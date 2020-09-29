@@ -5,7 +5,7 @@ var LocI18next;
         i18next = i18n;
         options = defaults;
         if (opts !== undefined && opts !== null) {
-            options = Object.assign(Object.assign({}, options), opts);
+            options = Object.assign({}, options, opts);
         }
         return handle;
     }
@@ -21,7 +21,7 @@ var LocI18next;
     };
     let options;
     function extendDefault(o, val) {
-        return options.parseDefaultValueFromContent ? Object.assign(Object.assign({}, o), { defaultValue: val }) : o;
+        return options.parseDefaultValueFromContent ? Object.assign({}, o, { defaultValue: val }) : o;
     }
     function parse(elem, key, opts) {
         let attr = "text";
