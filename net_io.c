@@ -3262,14 +3262,14 @@ static int decodeHttpMessage(struct client *c, char *p, int remote) {
 
     // Select the content to send, we have just two so far:
     // "/" -> Our google map application.
-    // "/data.json" -> Our ajax request to update planes.
-    if (strstr(url, "data/aircraft.json")) {
+    // "/data/*.json" -> Our ajax request to update planes.
+    if (strstr(url, "/data/aircraft.json")) {
         statuscode = 200;
         struct char_buffer json = generateAircraftJson();
         content = json.buffer;
         clen = json.len;
         //snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
-    } else if (strstr(url, "data/receiver.json")) {
+    } else if (strstr(url, "/data/receiver.json")) {
         statuscode = 200;
         struct char_buffer json = generateReceiverJson();
         content = json.buffer;
@@ -3277,14 +3277,19 @@ static int decodeHttpMessage(struct client *c, char *p, int remote) {
     } else {
         struct stat sbuf;
         int fd = -1;
+        int hid = -1;
         char *rp, *hrp;
+
+        if (Modes.json_dir && (sscanf(url, "/data/history_%d.json", &hid) == 1)) {
+            snprintf(getFile, sizeof getFile, "%s/history_%d.json", Modes.json_dir, hid);
+        }
 
         rp = realpath(getFile, NULL);
         hrp = realpath(HTMLPATH, NULL);
         hrp = (hrp ? hrp : HTMLPATH);
         clen = -1;
         content = strdup("Server error occured");
-        if (rp && (!strncmp(hrp, rp, strlen(hrp)))) {
+        if (rp && (hid != -1 || (!strncmp(hrp, rp, strlen(hrp))))) {
             if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
                 content = (char *) realloc(content, sbuf.st_size);
                 if (read(fd, content, sbuf.st_size) != -1) {
