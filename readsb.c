@@ -161,6 +161,7 @@ static void modesInitConfig(void) {
     Modes.net_output_sbs_ports = strdup("30003");
     Modes.net_input_sbs_ports = strdup("0");
     Modes.net_input_beast_ports = strdup("30004,30104");
+    Modes.net_input_http_ports = strdup("8080");
     Modes.net_output_beast_ports = strdup("30005");
     Modes.net_output_beast_reduce_ports = strdup("0");
     Modes.net_output_beast_reduce_interval = 125;
@@ -435,6 +436,7 @@ static void cleanup_and_exit(int code) {
     free(Modes.json_dir);
     free(Modes.net_bind_address);
     free(Modes.net_input_beast_ports);
+    free(Modes.net_input_http_ports);
     free(Modes.net_output_beast_ports);
     free(Modes.net_output_beast_reduce_ports);
     free(Modes.net_output_vrs_ports);
@@ -608,6 +610,10 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
             free(Modes.net_input_beast_ports);
             Modes.net_input_beast_ports = strdup(arg);
             break;
+        case OptNetHttpPorts:
+            free(Modes.net_input_http_ports);
+            Modes.net_input_http_ports = strdup(arg);
+            break;
         case OptNetBeastReducePorts:
             free(Modes.net_output_beast_reduce_ports);
             Modes.net_output_beast_reduce_ports = strdup(arg);
@@ -667,6 +673,7 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state) {
                     && strcmp(con->protocol, "raw_in") != 0
                     && strcmp(con->protocol, "vrs_out") != 0
                     && strcmp(con->protocol, "sbs_in") != 0
+                    && strcmp(con->protocol, "http_in") != 0
                     && strcmp(con->protocol, "sbs_out") != 0) {
                 fprintf(stderr, "--net-connector: Unknown protocol: %s\n", con->protocol);
                 fprintf(stderr, "Supported protocols: beast_out, beast_in, beast_reduce_out, raw_out, raw_in, sbs_out, sbs_in, vrs_out\n");

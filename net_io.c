@@ -82,6 +82,7 @@ static int handleBeastCommand(struct client *c, char *p, int remote);
 static int decodeBinMessage(struct client *c, char *p, int remote);
 static int decodeHexMessage(struct client *c, char *hex, int remote);
 static int decodeSbsLine(struct client *c, char *line, int remote);
+static int decodeHttpMessage(struct client *c, char *p, int remote);
 
 static void send_raw_heartbeat(struct net_service *service);
 static void send_beast_heartbeat(struct net_service *service);
@@ -464,6 +465,7 @@ void modesInitNet(void) {
     struct net_service *vrs_out;
     struct net_service *sbs_out;
     struct net_service *sbs_in;
+    struct net_service *http_in;
 
     uint64_t now = mstime();
 
@@ -491,6 +493,9 @@ void modesInitNet(void) {
 
     raw_in = serviceInit("Raw TCP input", NULL, NULL, READ_MODE_ASCII, "\n", decodeHexMessage);
     serviceListen(raw_in, Modes.net_bind_address, Modes.net_input_raw_ports);
+
+    http_in = serviceInit("Http input", NULL, NULL, READ_MODE_ASCII, "\r\n\r\n", decodeHttpMessage);
+    serviceListen(http_in, Modes.net_bind_address, Modes.net_input_http_ports);
 
     /* Beast input via network */
     beast_in = makeBeastInputService();
@@ -3198,6 +3203,157 @@ retry:
     cb.len = p - buf;
     cb.buffer = buf;
     return cb;
+}
+
+//
+//=========================================================================
+//
+#define MODES_CONTENT_TYPE_HTML "text/html;charset=utf-8"
+#define MODES_CONTENT_TYPE_CSS  "text/css;charset=utf-8"
+#define MODES_CONTENT_TYPE_JSON "application/json;charset=utf-8"
+#define MODES_CONTENT_TYPE_JS   "application/javascript;charset=utf-8"
+#ifndef HTMLPATH
+#define HTMLPATH   "./webapp/src"      // default path for gmap.html etc
+#endif
+
+static int decodeHttpMessage(struct client *c, char *p, int remote) {
+    MODES_NOTUSED(remote);
+    char hdr[512];
+    int clen, hdrlen;
+    int httpver, keepalive;
+    int statuscode = 500;
+    char *url, *content;
+    char ctype[48];
+    char getFile[1024];
+    char *ext;
+
+    if (Modes.debug & MODES_DEBUG_NET)
+        printf("\nHTTP request: %s\n", c->buf);
+
+    // Minimally parse the request.
+    httpver = (strstr(p, "HTTP/1.1") != NULL) ? 11 : 10;
+    if (httpver == 10) {
+        // HTTP 1.0 defaults to close, unless otherwise specified.
+        //keepalive = strstr(p, "Connection: keep-alive") != NULL;
+    } else if (httpver == 11) {
+        // HTTP 1.1 defaults to keep-alive, unless close is specified.
+        //keepalive = strstr(p, "Connection: close") == NULL;
+    }
+    keepalive = 0;
+
+    // Identify he URL.
+    p = strchr(p,' ');
+    if (!p) return 1; // There should be the method and a space
+    url = ++p;        // Now this should point to the requested URL
+    p = strchr(p, ' ');
+    if (!p) return 1; // There should be a space before HTTP/
+    *p = '\0';
+
+    if (Modes.debug & MODES_DEBUG_NET) {
+        printf("\nHTTP keep alive: %d\n", keepalive);
+        printf("HTTP requested URL: %s\n\n", url);
+    }
+
+    if (strlen(url) < 2) {
+        snprintf(getFile, sizeof getFile, "%s/index.html", HTMLPATH); // Default file
+    } else {
+        snprintf(getFile, sizeof getFile, "%s/%s", HTMLPATH, url);
+    }
+
+    // Select the content to send, we have just two so far:
+    // "/" -> Our google map application.
+    // "/data.json" -> Our ajax request to update planes.
+    if (strstr(url, "data/aircraft.json")) {
+        statuscode = 200;
+        struct char_buffer json = generateAircraftJson();
+        content = json.buffer;
+        clen = json.len;
+        //snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
+    } else if (strstr(url, "data/receiver.json")) {
+        statuscode = 200;
+        struct char_buffer json = generateReceiverJson();
+        content = json.buffer;
+        clen = json.len;
+    } else {
+        struct stat sbuf;
+        int fd = -1;
+        char *rp, *hrp;
+
+        rp = realpath(getFile, NULL);
+        hrp = realpath(HTMLPATH, NULL);
+        hrp = (hrp ? hrp : HTMLPATH);
+        clen = -1;
+        content = strdup("Server error occured");
+        if (rp && (!strncmp(hrp, rp, strlen(hrp)))) {
+            if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
+                content = (char *) realloc(content, sbuf.st_size);
+                if (read(fd, content, sbuf.st_size) != -1) {
+                    clen = sbuf.st_size;
+                    statuscode = 200;
+                }
+            }
+        } else {
+            errno = ENOENT;
+        }
+
+        if (clen < 0) {
+            content = realloc(content, 128);
+            clen = snprintf(content, 128,"Error opening HTML file: %s", strerror(errno));
+            statuscode = 404;
+        }
+
+        if (fd != -1) {
+            close(fd);
+        }
+    }
+
+    // Get file extension and content type
+    snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_HTML); // Default content type
+    ext = strrchr(getFile, '.');
+
+    if (strlen(ext) > 0) {
+        if (strstr(ext, ".json")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
+        } else if (strstr(ext, ".css")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_CSS);
+        } else if (strstr(ext, ".js")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JS);
+        }
+    }
+
+    // Create the header and send the reply
+    hdrlen = snprintf(hdr, sizeof(hdr),
+        "HTTP/1.1 %d \r\n"
+        "Server: Dump1090\r\n"
+        "Content-Type: %s\r\n"
+        "Connection: %s\r\n"
+        "Content-Length: %d\r\n"
+        "Cache-Control: no-cache, must-revalidate\r\n"
+        "Expires: Sat, 26 Jul 1997 05:00:00 GMT\r\n"
+        "\r\n",
+        statuscode,
+        ctype,
+        keepalive ? "keep-alive" : "close",
+        clen);
+
+    if (Modes.debug & MODES_DEBUG_NET) {
+        printf("HTTP Reply header:\n%s", hdr);
+    }
+
+    // Send header and content.
+#ifndef _WIN32
+    if ( (write(c->fd, hdr, hdrlen) != hdrlen)
+      || (write(c->fd, content, clen) != clen) ) {
+#else
+    if ( (send(c->fd, hdr, hdrlen, 0) != hdrlen)
+      || (send(c->fd, content, clen, 0) != clen) ) {
+#endif
+        free(content);
+        return 1;
+    }
+    free(content);
+    //Modes.stat_http_requests++;
+    return !keepalive;
 }
 
 //

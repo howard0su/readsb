@@ -375,6 +375,7 @@ struct _Modes
   char *net_input_beast_ports; // List of Beast input TCP ports
   char *net_output_beast_ports; // List of Beast output TCP ports
   char *net_output_beast_reduce_ports; // List of Beast output TCP ports
+  char *net_input_http_ports; // List of Http input ports
   uint64_t net_output_beast_reduce_interval; // Position update interval for data reduction
   char *net_output_vrs_ports; // List of VRS output TCP ports
   int basestation_is_mlat; // Basestation input is from MLAT
@@ -688,6 +689,7 @@ enum {
   OptNetConnector,
   OptNetConnectorDelay,
   OptNetHeartbeat,
+  OptNetHttpPorts,
   OptNetBuffer,
   OptNetVerbatim,
   OptRtlSdrEnableAgc,
